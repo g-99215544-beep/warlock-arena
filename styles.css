@@ -376,6 +376,22 @@
     font-size: clamp(18px, 5vw, 36px);
     margin-bottom: 10px;
   }
+  #menuView.hidden {
+    display: none;
+  }
+  .result-panel {
+    display: none;
+    width: 100%;
+    align-items: center;
+    flex-direction: column;
+  }
+  .result-panel.visible {
+    display: flex;
+  }
+  .result-subtitle {
+    margin-top: 4px;
+    margin-bottom: 8px;
+  }
   .p1-win { color: #ff6b35; text-shadow: 0 0 20px #ff6b35; }
   .p2-win { color: #4fc3f7; text-shadow: 0 0 20px #4fc3f7; }
 
@@ -386,6 +402,53 @@
     line-height: 1.8;
     margin-bottom: 20px;
     letter-spacing: 0.5px;
+  }
+  .online-panel {
+    margin-top: 18px;
+    width: min(360px, 88vw);
+    padding: 16px 14px 14px;
+    border: 1px solid rgba(255,215,120,0.16);
+    border-radius: 18px;
+    background: rgba(255,255,255,0.04);
+    box-shadow: inset 0 0 24px rgba(255,180,80,0.04);
+  }
+  .online-title {
+    color: rgba(255,215,120,0.82);
+    font-family: 'Cinzel Decorative', cursive;
+    font-size: 13px;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+  .online-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .online-input {
+    flex: 1 1 130px;
+    min-width: 120px;
+    padding: 12px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(0,0,0,0.32);
+    color: rgba(255,245,220,0.95);
+    text-align: center;
+    font-family: 'Cinzel', serif;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    outline: none;
+  }
+  .online-input::placeholder {
+    color: rgba(255,255,255,0.3);
+  }
+  .online-status {
+    margin-top: 12px;
+    min-height: 18px;
+    color: rgba(255,255,255,0.58);
+    font-size: 10px;
+    line-height: 1.6;
   }
 
 

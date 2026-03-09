@@ -294,22 +294,39 @@
 
 <!-- Overlay -->
 <div id="overlay">
-  <h1>Warlock Brawl</h1>
-  <div class="subtitle">Physics Arena Battle</div>
-  <p class="lore-text">Knock your enemies into the lava. The more damage they've taken, the further they'll fly. Survive to claim victory.</p>
-  <div style="display:flex;gap:28px;margin-bottom:20px;justify-content:center;flex-wrap:wrap;">
-    <div style="text-align:center;">
-      <div style="color:rgba(255,180,80,0.7);font-size:9px;letter-spacing:2px;margin-bottom:8px;">📱 TOUCH</div>
-      <div style="color:rgba(255,255,255,0.45);font-size:9px;line-height:2;">Joystick — Move<br>Spell buttons — Cast</div>
+  <div id="menuView">
+    <h1>Warlock Brawl</h1>
+    <div class="subtitle">Physics Arena Battle</div>
+    <p class="lore-text">Knock your enemies into the lava. The more damage they've taken, the further they'll fly. Survive to claim victory.</p>
+    <div style="display:flex;gap:28px;margin-bottom:20px;justify-content:center;flex-wrap:wrap;">
+      <div style="text-align:center;">
+        <div style="color:rgba(255,180,80,0.7);font-size:9px;letter-spacing:2px;margin-bottom:8px;">📱 TOUCH</div>
+        <div style="color:rgba(255,255,255,0.45);font-size:9px;line-height:2;">Joystick — Move<br>Spell buttons — Cast</div>
+      </div>
+      <div style="width:1px;background:rgba(255,255,255,0.1);"></div>
+      <div style="text-align:center;">
+        <div style="color:rgba(255,180,80,0.7);font-size:9px;letter-spacing:2px;margin-bottom:8px;">🖥 PC</div>
+        <div style="color:rgba(255,255,255,0.45);font-size:9px;line-height:2;">WASD — Move · Mouse — Aim<br>Q E R T F G — Spell Slots<br>Left Click — Slot 1 · Right Click — Slot 2</div>
+      </div>
     </div>
-    <div style="width:1px;background:rgba(255,255,255,0.1);"></div>
-    <div style="text-align:center;">
-      <div style="color:rgba(255,180,80,0.7);font-size:9px;letter-spacing:2px;margin-bottom:8px;">🖥 PC</div>
-      <div style="color:rgba(255,255,255,0.45);font-size:9px;line-height:2;">WASD — Move · Mouse — Aim<br>Q E R T F G — Spell Slots<br>Left Click — Slot 1 · Right Click — Slot 2</div>
+    <button class="big-btn" id="startBtn">⚔️ Enter the Arena</button>
+    <button class="menu-btn secondary" id="fullscreenBtn">⛶ Fullscreen Landscape</button>
+    <div class="online-panel">
+      <div class="online-title">Online Duel</div>
+      <div class="online-row">
+        <input id="roomCodeInput" class="online-input" maxlength="6" placeholder="ROOM CODE">
+        <button class="menu-btn" id="joinRoomBtn">Join Room</button>
+      </div>
+      <button class="menu-btn secondary" id="createRoomBtn">Create Room</button>
+      <div id="onlineStatus" class="online-status">Create a room or join a friend's code.</div>
     </div>
   </div>
-  <button class="big-btn" id="startBtn">⚔️ Enter the Arena</button>
-  <button class="menu-btn secondary" id="fullscreenBtn">⛶ Fullscreen Landscape</button>
+  <div id="resultPanel" class="result-panel">
+    <h1 id="resultTitle">Victory!</h1>
+    <div id="resultText" class="result-text p1-win">You vanquished all warlocks!</div>
+    <div id="resultSubtitle" class="subtitle result-subtitle">After 1 rounds · 0g earned</div>
+    <button class="big-btn" id="resultStartBtn">⚔️ Play Again</button>
+  </div>
 </div>
 
 <!-- Shop Panel -->
@@ -327,7 +344,10 @@
 
 <canvas id="gameCanvas"></canvas>
 
-<script src="game.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/11.6.0/firebase-database-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/11.6.0/firebase-analytics-compat.js"></script>
+<script defer src="game.js"></script>
 
 <!-- Swap Spell Modal -->
 <div id="swapModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9000;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:12px;">

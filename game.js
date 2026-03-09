@@ -353,7 +353,77 @@ let inputMode = 'touch'; // 'touch' | 'pc'
 const pcHint = document.getElementById('pcHint');
 const mouseCursor = document.getElementById('mouse-cursor');
 const controlsEl = document.getElementById('controls');
+const overlayEl = document.getElementById('overlay');
+const menuViewEl = document.getElementById('menuView');
+const resultPanelEl = document.getElementById('resultPanel');
+const resultTitleEl = document.getElementById('resultTitle');
+const resultTextEl = document.getElementById('resultText');
+const resultSubtitleEl = document.getElementById('resultSubtitle');
+const startBtn = document.getElementById('startBtn');
+const resultStartBtn = document.getElementById('resultStartBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
+const createRoomBtn = document.getElementById('createRoomBtn');
+const joinRoomBtn = document.getElementById('joinRoomBtn');
+const roomCodeInput = document.getElementById('roomCodeInput');
+const onlineStatusEl = document.getElementById('onlineStatus');
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDwKhHV-dnFltmr1rXgLVlS9Zps0DvQpjg",
+  authDomain: "mathgym-2266a.firebaseapp.com",
+  databaseURL: "https://mathgym-2266a-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "mathgym-2266a",
+  storageBucket: "mathgym-2266a.firebasestorage.app",
+  messagingSenderId: "1089969116974",
+  appId: "1:1089969116974:web:fe5e9dbd60e9e93f890cbf",
+  measurementId: "G-EMLNYDD0RR"
+};
+
+let firebaseReady = false;
+let firebaseDb = null;
+let onlineMode = false;
+let onlineRole = 'offline';
+let onlineRoomId = '';
+let onlineClientId = 'p-' + Math.random().toString(36).slice(2, 10);
+let onlineSnapshotTimer = 0;
+let onlineInputSentAt = 0;
+let lastGuestInputPayload = '';
+let guestInputState = { moveX: 0, moveY: 0, aimX: 1, aimY: 0 };
+let guestLastCastNonce = 0;
+let localCastNonce = 0;
+let roomRefs = { room: null, state: null, input: null, cast: null, meta: null };
+
+function setOnlineStatus(msg) {
+  if (onlineStatusEl) onlineStatusEl.textContent = msg;
+}
+
+function showMenuOverlay() {
+  if (menuViewEl) menuViewEl.classList.remove('hidden');
+  if (resultPanelEl) resultPanelEl.classList.remove('visible');
+  if (overlayEl) overlayEl.style.display = 'flex';
+}
+
+function hideOverlay() {
+  if (menuViewEl) menuViewEl.classList.remove('hidden');
+  if (resultPanelEl) resultPanelEl.classList.remove('visible');
+  if (overlayEl) overlayEl.style.display = 'none';
+}
+
+function initFirebaseRealtime() {
+  if (firebaseReady || !window.firebase) return firebaseReady;
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  firebaseDb = firebase.database();
+  firebaseReady = true;
+  try {
+    if (firebase.analytics) firebase.analytics();
+  } catch (_) {
+    // Analytics is optional for local/dev builds.
+  }
+  return true;
+}
+
+function makeRoomCode() {
+  return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
 
 function setInputMode(mode) {
   if (inputMode === mode) return;
@@ -411,6 +481,20 @@ if (fullscreenBtn) {
     requestFullscreenLandscape();
   }, { passive: false });
 }
+if (createRoomBtn) {
+  createRoomBtn.addEventListener('click', createOnlineRoom);
+  createRoomBtn.addEventListener('touchend', e => {
+    e.preventDefault();
+    createOnlineRoom();
+  }, { passive: false });
+}
+if (joinRoomBtn) {
+  joinRoomBtn.addEventListener('click', joinOnlineRoom);
+  joinRoomBtn.addEventListener('touchend', e => {
+    e.preventDefault();
+    joinOnlineRoom();
+  }, { passive: false });
+}
 
 // ─────────────────────────────────────────────
 // KEYBOARD INPUT
@@ -435,7 +519,7 @@ window.addEventListener('keydown', e => {
   const slotIdx = SLOT_KEYS.indexOf(e.code);
   if (slotIdx >= 0 && players[0].activeSpells && players[0].activeSpells[slotIdx]) {
     const spellName = players[0].activeSpells[slotIdx];
-    castSpell(players[0], spellName);
+    handleLocalCast(spellName);
     const btn = document.getElementById('spellbtn-'+spellName);
     if (btn) { btn.classList.add('active'); setTimeout(() => btn.classList.remove('active'), 150); }
     e.preventDefault();
@@ -458,8 +542,8 @@ window.addEventListener('mousemove', e => {
 // Left click = fireball, Right click = lightning
 window.addEventListener('mousedown', e => {
   if (!gameRunning) return;
-  if (e.button === 0 && players[0].activeSpells) castSpell(players[0], players[0].activeSpells[0]);
-  if (e.button === 2 && players[0].activeSpells) castSpell(players[0], players[0].activeSpells[1] || players[0].activeSpells[0]);
+  if (e.button === 0 && players[0].activeSpells) handleLocalCast(players[0].activeSpells[0]);
+  if (e.button === 2 && players[0].activeSpells) handleLocalCast(players[0].activeSpells[1] || players[0].activeSpells[0]);
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 window.addEventListener('contextmenu', e => e.preventDefault());
@@ -544,7 +628,7 @@ window.addEventListener('touchend', e => {
       const aim = { dx: activeSkillAim.dx, dy: activeSkillAim.dy, distance: activeSkillAim.distance };
       const spell = activeSkillAim.spell;
       clearSkillAim();
-      castSpell(players[0], spell, aim);
+      handleLocalCast(spell, aim);
     }
   }
 });
@@ -1007,14 +1091,20 @@ function updatePhysics(now, dt) {
     if (p.dead) {
       p.deadTimer -= dt;
       p.deathSpin += 0.15;
-      if (p.deadTimer <= 1200 && !roundEndPending) checkRoundEnd();
+      if (p.deadTimer <= 1200 && !roundEndPending && !onlineMode) checkRoundEnd();
       return;
     }
 
     // Player movement
     if (!p.isBot) {
       const speed = 0.55;
-      if (inputMode === 'pc') {
+      if (onlineMode && onlineRole === 'host' && p.id === 1) {
+        p.vx += (guestInputState.moveX || 0) * speed;
+        p.vy += (guestInputState.moveY || 0) * speed;
+        if (guestInputState.aimX || guestInputState.aimY) {
+          p.angle = Math.atan2(guestInputState.aimY || 0, guestInputState.aimX || 1);
+        }
+      } else if (inputMode === 'pc') {
         // WASD keyboard
         if (keys['KeyW'] || keys['ArrowUp'])    { p.vy -= speed; }
         if (keys['KeyS'] || keys['ArrowDown'])  { p.vy += speed; }
@@ -1044,7 +1134,9 @@ function updatePhysics(now, dt) {
         p.angle = Math.atan2(t.y - p.y, t.x - p.x);
       }
     } else {
-      if (inputMode === 'pc') {
+      if (onlineMode && onlineRole === 'host' && p.id === 1) {
+        p.angle = Math.atan2(guestInputState.aimY || 0, guestInputState.aimX || 1);
+      } else if (inputMode === 'pc') {
         const wmx = mouseX + camX - canvas.width/2;
         const wmy = mouseY + camY - canvas.height/2;
         p.angle = Math.atan2(wmy - p.y, wmx - p.x);
@@ -1195,6 +1287,16 @@ function updatePhysics(now, dt) {
 
   // Effects
   effects = effects.filter(e => { e.life--; return e.life > 0; });
+
+  if (onlineMode && onlineRole === 'host' && !roundEndPending) {
+    const loser = players.slice(0, 2).find(p => p.dead);
+    if (loser) {
+      roundEndPending = true;
+      gameRunning = false;
+      if (roomRefs.meta) roomRefs.meta.update({ status: 'finished', winner: loser.id === 0 ? 1 : 0 });
+      setTimeout(() => presentGameOver(loser.id !== 0), 500);
+    }
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -1295,6 +1397,240 @@ function getManualAim(p, fallbackTarget) {
   }
   const dist = Math.hypot(ax, ay) || 1;
   return { dx: ax / dist, dy: ay / dist, distance: dist };
+}
+
+function resetOnlineRoomRefs() {
+  Object.values(roomRefs).forEach(ref => { if (ref && ref.off) ref.off(); });
+  roomRefs = { room: null, state: null, input: null, cast: null, meta: null };
+  guestInputState = { moveX: 0, moveY: 0, aimX: 1, aimY: 0 };
+  onlineSnapshotTimer = 0;
+  onlineInputSentAt = 0;
+  lastGuestInputPayload = '';
+}
+
+function configureOnlinePlayers() {
+  players.splice(2);
+  players[0].name = 'You';
+  players[1].name = 'Opponent';
+  players[0].isBot = false;
+  players[1].isBot = false;
+  players.forEach(p => {
+    p.lives = 1;
+    p.activeSpells = ['fireball','lightning','homing','shield','thrust','gravity'];
+    p.upgrades = {};
+    p.spellLevels = {};
+    p.cooldowns = {};
+    p.gold = 0;
+    p.dead = false;
+    p.deadTimer = 0;
+    p.damage = 0;
+    p.shieldActive = false;
+    p.thrusting = false;
+  });
+  projectiles = [];
+  effects = [];
+  particles = [];
+  lavaRadius = 1.0;
+  lavaWarned = false;
+  round = 1;
+  isBossRound = false;
+  bossPlayer = null;
+  spawnPlayers();
+  countdownVal = -1;
+  gameRunning = true;
+  roundEndPending = false;
+  guestLastCastNonce = 0;
+  localCastNonce = 0;
+  hideOverlay();
+}
+
+function serializeOnlineState() {
+  return {
+    players: players.slice(0, 2).map(p => ({ ...p })),
+    projectiles: projectiles.map(p => ({ ...p })),
+    effects: effects.map(e => ({ ...e })),
+    round,
+    lavaRadius,
+    gameRunning,
+  };
+}
+
+function applyOnlineSnapshot(snapshot) {
+  if (!snapshot || !snapshot.players || snapshot.players.length < 2) return;
+  const ordered = onlineRole === 'guest'
+    ? [snapshot.players[1], snapshot.players[0]]
+    : snapshot.players;
+  players.splice(0, players.length, ...ordered.map((p, idx) => ({
+    ...p,
+    name: idx === 0 ? 'You' : 'Opponent',
+    isBot: false,
+  })));
+  projectiles = (snapshot.projectiles || []).map(p => ({ ...p }));
+  effects = (snapshot.effects || []).map(e => ({ ...e }));
+  round = snapshot.round || 1;
+  lavaRadius = snapshot.lavaRadius || 1;
+  gameRunning = !!snapshot.gameRunning;
+  isBossRound = false;
+  bossPlayer = null;
+}
+
+function sendGuestInput() {
+  if (!onlineMode || onlineRole !== 'guest' || !roomRefs.input || !players[0]) return;
+  let moveX = 0, moveY = 0, aimX = Math.cos(players[0].angle), aimY = Math.sin(players[0].angle);
+  if (inputMode === 'pc') {
+    if (keys['KeyW'] || keys['ArrowUp']) moveY -= 1;
+    if (keys['KeyS'] || keys['ArrowDown']) moveY += 1;
+    if (keys['KeyA'] || keys['ArrowLeft']) moveX -= 1;
+    if (keys['KeyD'] || keys['ArrowRight']) moveX += 1;
+    const len = Math.hypot(moveX, moveY) || 1;
+    moveX /= len; moveY /= len;
+    const aim = getManualAim(players[0], players[1] || players[0]);
+    aimX = aim.dx; aimY = aim.dy;
+  } else {
+    moveX = joystick.dx;
+    moveY = joystick.dy;
+    if (activeSkillAim) {
+      aimX = activeSkillAim.dx;
+      aimY = activeSkillAim.dy;
+    }
+  }
+  const payload = {
+    moveX: Math.round(moveX * 1000) / 1000,
+    moveY: Math.round(moveY * 1000) / 1000,
+    aimX: Math.round(aimX * 1000) / 1000,
+    aimY: Math.round(aimY * 1000) / 1000,
+  };
+  const payloadKey = `${payload.moveX}|${payload.moveY}|${payload.aimX}|${payload.aimY}`;
+  const now = performance.now();
+  if (payloadKey === lastGuestInputPayload && now - onlineInputSentAt < 33) return;
+  lastGuestInputPayload = payloadKey;
+  onlineInputSentAt = now;
+  roomRefs.input.set(payload);
+}
+
+function sendGuestCast(spellName, aim) {
+  if (!onlineMode || onlineRole !== 'guest' || !roomRefs.cast) return;
+  localCastNonce += 1;
+  roomRefs.cast.set({
+    nonce: localCastNonce,
+    spell: spellName,
+    aim,
+  });
+}
+
+function handleLocalCast(spellName, aim = null) {
+  if (onlineMode && onlineRole === 'guest') {
+    sendGuestCast(spellName, aim || getManualAim(players[0], players[1] || players[0]));
+    return;
+  }
+  castSpell(players[0], spellName, aim);
+}
+
+function createOnlineRoom() {
+  if (!initFirebaseRealtime()) {
+    setOnlineStatus('Firebase failed to initialize.');
+    return;
+  }
+  resetOnlineRoomRefs();
+  onlineRoomId = makeRoomCode();
+  onlineRole = 'host';
+  onlineMode = true;
+  roomRefs.room = firebaseDb.ref('rooms/' + onlineRoomId);
+  roomRefs.meta = roomRefs.room.child('meta');
+  roomRefs.state = roomRefs.room.child('state');
+  roomRefs.input = roomRefs.room.child('guestInput');
+  roomRefs.cast = roomRefs.room.child('guestCast');
+  roomRefs.room.onDisconnect().remove();
+  roomRefs.meta.set({ hostId: onlineClientId, guestId: '', status: 'waiting' });
+  roomRefs.input.on('value', snap => { guestInputState = snap.val() || guestInputState; });
+  roomRefs.cast.on('value', snap => {
+    const data = snap.val();
+    if (!data || !players[1] || data.nonce <= guestLastCastNonce) return;
+    guestLastCastNonce = data.nonce;
+    castSpell(players[1], data.spell, data.aim || null);
+  });
+  roomRefs.meta.on('value', snap => {
+    const meta = snap.val();
+    if (!meta) return;
+    if (meta.status === 'finished') {
+      onlineMode = false;
+      onlineRole = 'offline';
+      resetOnlineRoomRefs();
+      presentGameOver(meta.winner === 0);
+      return;
+    }
+    if (meta.guestId && meta.status !== 'started') {
+      configureOnlinePlayers();
+      roomRefs.meta.update({ status: 'started' });
+      roomRefs.state.set(serializeOnlineState());
+      setOnlineStatus('Guest connected. Match live in room ' + onlineRoomId + '.');
+    } else if (!meta.guestId) {
+      setOnlineStatus('Room ' + onlineRoomId + ' created. Share the code and wait.');
+    }
+  });
+}
+
+function joinOnlineRoom() {
+  if (!initFirebaseRealtime()) {
+    setOnlineStatus('Firebase failed to initialize.');
+    return;
+  }
+  const code = (roomCodeInput.value || '').trim().toUpperCase();
+  if (!code) {
+    setOnlineStatus('Enter a room code first.');
+    return;
+  }
+  resetOnlineRoomRefs();
+  onlineRoomId = code;
+  onlineRole = 'guest';
+  onlineMode = true;
+  roomRefs.room = firebaseDb.ref('rooms/' + onlineRoomId);
+  roomRefs.meta = roomRefs.room.child('meta');
+  roomRefs.state = roomRefs.room.child('state');
+  roomRefs.input = roomRefs.room.child('guestInput');
+  roomRefs.cast = roomRefs.room.child('guestCast');
+  roomRefs.input.onDisconnect().remove();
+  roomRefs.cast.onDisconnect().remove();
+  roomRefs.meta.child('guestId').onDisconnect().remove();
+  roomRefs.meta.once('value').then(snap => {
+    const meta = snap.val();
+    if (!meta) {
+      setOnlineStatus('Room not found.');
+      onlineMode = false;
+      onlineRole = 'offline';
+      resetOnlineRoomRefs();
+      return;
+    }
+    if (meta.guestId && meta.guestId !== onlineClientId) {
+      setOnlineStatus('Room already full.');
+      onlineMode = false;
+      onlineRole = 'offline';
+      resetOnlineRoomRefs();
+      return;
+    }
+    roomRefs.meta.update({ guestId: onlineClientId });
+    hideOverlay();
+    setOnlineStatus('Connected. Waiting for host state...');
+  }).catch(() => {
+    setOnlineStatus('Failed to join room.');
+    onlineMode = false;
+    onlineRole = 'offline';
+    resetOnlineRoomRefs();
+  });
+  roomRefs.state.on('value', snap => {
+    const state = snap.val();
+    if (state) applyOnlineSnapshot(state);
+  });
+  roomRefs.meta.on('value', snap => {
+    const meta = snap.val();
+    if (!meta) return;
+    if (meta.status === 'finished') {
+      onlineMode = false;
+      onlineRole = 'offline';
+      resetOnlineRoomRefs();
+      presentGameOver(meta.winner === 1);
+    }
+  });
 }
 
 function spawnBoss() {
@@ -1760,7 +2096,7 @@ function checkRoundEnd() {
       roundEndPending = false;
       enterSpectatorMode();
     } else {
-      setTimeout(() => showGameOver(false), 800);
+      setTimeout(() => presentGameOver(false), 800);
     }
     return;
   }
@@ -1818,7 +2154,7 @@ function updateSpectator(dt) {
     spectatorMode = false;
     spectatorTarget = null;
     roundEndPending = true;
-    setTimeout(() => showGameOver(false), 1500);
+    setTimeout(() => presentGameOver(false), 1500);
     return;
   }
 
@@ -1828,6 +2164,19 @@ function updateSpectator(dt) {
     spectatorTarget = others[Math.floor(Math.random() * Math.max(others.length, 1))] || liveBots[0] || null;
     spectatorSwapTimer = 3000 + Math.random() * 2000;
   }
+}
+
+function presentGameOver(playerWon) {
+  gameRunning = false;
+  if (menuViewEl) menuViewEl.classList.add('hidden');
+  if (resultPanelEl) resultPanelEl.classList.add('visible');
+  if (resultTitleEl) resultTitleEl.textContent = playerWon ? 'Victory!' : 'Defeated!';
+  if (resultTextEl) {
+    resultTextEl.textContent = playerWon ? 'You vanquished all warlocks!' : 'You have fallen...';
+    resultTextEl.className = 'result-text ' + (playerWon ? 'p1-win' : 'p2-win');
+  }
+  if (resultSubtitleEl) resultSubtitleEl.textContent = `After ${round} rounds · ${playerGold}g earned`;
+  if (overlayEl) overlayEl.style.display = 'flex';
 }
 
 function showGameOver(playerWon) {
@@ -3052,7 +3401,7 @@ function loop(ts) {
 
   drawArena();
 
-  if (gameRunning || spectatorMode) {
+  if ((gameRunning || spectatorMode) && (!onlineMode || onlineRole === 'host')) {
     updatePhysics(ts, dt);
     players.forEach(p => {
       if (p.isBoss) updateBoss(p, dt, ts);
@@ -3070,8 +3419,19 @@ function loop(ts) {
     }
     if (spectatorMode) updateSpectator(dt);
   }
+  if (onlineMode && onlineRole === 'guest' && gameRunning) {
+    sendGuestInput();
+  }
+  if (onlineMode && onlineRole === 'host' && roomRefs.state && gameRunning) {
+    onlineSnapshotTimer -= dt;
+    if (onlineSnapshotTimer <= 0) {
+      onlineSnapshotTimer = 50;
+      roomRefs.state.set(serializeOnlineState());
+    }
+  }
 
   drawLaserTelegraphs();
+  drawTouchSkillAim();
   drawEffects();
   drawProjectiles();
   players.forEach(drawWarlock);
@@ -3407,6 +3767,16 @@ function closeShop() {
 
 function startGame(e) {
   if (e) e.preventDefault();
+  onlineMode = false;
+  onlineRole = 'offline';
+  onlineRoomId = '';
+  guestLastCastNonce = 0;
+  localCastNonce = 0;
+  resetOnlineRoomRefs();
+  while (players.length < 6) {
+    const idx = players.length;
+    players.push(makePlayer(idx, BOT_NAMES[idx - 1], BOT_COLORS[idx - 1], BOT_GLOWS[idx - 1], true));
+  }
   round = 1;
   playerGold = 0;
   shopOpen = false;
@@ -3420,13 +3790,15 @@ function startGame(e) {
   });
   spawnPlayers(); // sets countdownVal=3, gameRunning=false
   roundEndPending = false;
-  document.getElementById('overlay').style.display = 'none';
+  hideOverlay();
   document.getElementById('shopPanel').style.display = 'none';
 }
 
 // Init
-document.getElementById('startBtn').addEventListener('touchstart', startGame, { passive: false });
-document.getElementById('startBtn').addEventListener('click', startGame);
+startBtn.addEventListener('touchstart', startGame, { passive: false });
+startBtn.addEventListener('click', startGame);
+resultStartBtn.addEventListener('touchstart', startGame, { passive: false });
+resultStartBtn.addEventListener('click', startGame);
 document.getElementById('shopContinueBtn').addEventListener('click', closeShop);
 document.getElementById('shopContinueBtn').addEventListener('touchend', (e)=>{ e.preventDefault(); closeShop(); });
 // roundRect polyfill for older browsers
