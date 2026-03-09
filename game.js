@@ -317,6 +317,8 @@ function makePlayer(id, name, color, glowColor, isBot) {
     angle: 0, radius: 18,
     activeSpells: ['fireball','lightning','homing','shield','thrust','gravity'],
     upgrades: {},
+    spellLevels: {},
+    gold: 0,
     cooldowns: {},
     frozenUntil: 0,
     shieldActive: false, shieldTimer: 0,
@@ -578,7 +580,7 @@ function spawnPlayers() {
 // ─────────────────────────────────────────────
 function castSpell(p, spellName) {
   if (!gameRunning || p.dead || countdownVal > 0) return;
-  const spell = SPELLS[spellName];
+  const spell = getSpellForCaster(p, spellName);
   if (!spell) return;
   // Check player has this spell
   if (!p.isBot && p.activeSpells && !p.activeSpells.includes(spellName)) return;
@@ -1064,10 +1066,11 @@ function updatePhysics(now, dt) {
   });
 
   // Projectiles
-  projectiles = projectiles.filter(proj => {
-    proj.x += proj.vx; proj.y += proj.vy; proj.life--;
+  projectiles.forEach(proj => {
+    proj.x += proj.vx;
+    proj.y += proj.vy;
+    proj.life--;
 
-    // Homing
     if (proj.spell === 'homing') {
       const t = proj.owner === 0 ? players[1] : players[0];
       if (!t.dead) {
@@ -1076,13 +1079,46 @@ function updatePhysics(now, dt) {
         proj.vx += (dx/d) * 0.15;
         proj.vy += (dy/d) * 0.15;
         const spd = Math.hypot(proj.vx, proj.vy);
-        if (spd > SPELLS.homing.speed) { proj.vx = proj.vx/spd*SPELLS.homing.speed; proj.vy = proj.vy/spd*SPELLS.homing.speed; }
+        if (spd > SPELLS.homing.speed) {
+          proj.vx = proj.vx/spd*SPELLS.homing.speed;
+          proj.vy = proj.vy/spd*SPELLS.homing.speed;
+        }
       }
     }
 
-    // Hit players
+    if (proj.distTravelled !== undefined) {
+      const spd = Math.hypot(proj.vx, proj.vy);
+      proj.distTravelled += spd;
+      if (proj.range && proj.distTravelled > proj.range) proj.life = -1;
+    }
+    if (Math.hypot(proj.x - arenaX, proj.y - arenaY) > arenaR * lavaRadius + 20) proj.life = -1;
+  });
+
+  for (let i = 0; i < projectiles.length; i++) {
+    const a = projectiles[i];
+    if (a.life <= 0 || a.spell !== 'fireball') continue;
+    for (let j = i + 1; j < projectiles.length; j++) {
+      const b = projectiles[j];
+      if (b.life <= 0 || b.spell !== 'fireball' || a.owner === b.owner) continue;
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const minDist = (a.radius || 0) + (b.radius || 0);
+      if (dx*dx + dy*dy <= minDist * minDist) {
+        a.life = -1;
+        b.life = -1;
+        const ex = (a.x + b.x) * 0.5;
+        const ey = (a.y + b.y) * 0.5;
+        spawnParticlesBurst(ex, ey, '#ff8844', 18);
+        effects.push({ type:'explosion', x:ex, y:ey, radius:34, life:12, maxLife:12, color:'#ff6b35' });
+        break;
+      }
+    }
+  }
+
+  projectiles.forEach(proj => {
+    if (proj.life <= 0) return;
     players.forEach(p => {
-      if (p.id === proj.owner || p.dead) return;
+      if (p.id === proj.owner || p.dead || proj.life <= 0) return;
       const dx = p.x - proj.x, dy = p.y - proj.y;
       if (Math.hypot(dx, dy) < p.radius + proj.radius) {
         if (p.shieldActive) {
@@ -1090,11 +1126,9 @@ function updatePhysics(now, dt) {
           spawnParticlesBurst(proj.x, proj.y, '#81c784', 8);
         } else {
           const nd = Math.hypot(dx, dy) || 1;
-          const attacker = players.find(o=>o.id===proj.owner);
+          const attacker = players.find(o => o.id === proj.owner);
           applyDamage(p, attacker, proj.damage, dx/nd, dy/nd);
-          // Freeze effect
-          if (proj.freeze) { p.frozenUntil = performance.now() + (proj.freezeDur||800); }
-          // AoE explosion (meteor)
+          if (proj.freeze) p.frozenUntil = performance.now() + (proj.freezeDur||800);
           if (proj.aoe) {
             spawnParticlesBurst(proj.x, proj.y, proj.color, 35);
             effects.push({ type:'explosion', x:proj.x, y:proj.y, radius:proj.aoeRadius, life:18, maxLife:18, color:proj.color });
@@ -1102,7 +1136,7 @@ function updatePhysics(now, dt) {
               if (ep.id === proj.owner || ep.dead || ep.id === p.id) return;
               const ed = Math.hypot(ep.x-proj.x, ep.y-proj.y);
               if (ed < proj.aoeRadius) {
-                const enx=(ep.x-proj.x)/ed||1, eny=(ep.y-proj.y)/ed||1;
+                const enx = (ep.x-proj.x)/ed||1, eny = (ep.y-proj.y)/ed||1;
                 applyDamage(ep, attacker, proj.damage*0.6, enx, eny);
               }
             });
@@ -1113,17 +1147,9 @@ function updatePhysics(now, dt) {
         }
       }
     });
-
-    // Out of arena bounds
-    // Track distance travelled for range-limited spells
-    if (proj.distTravelled !== undefined) {
-      const spd = Math.hypot(proj.vx, proj.vy);
-      proj.distTravelled += spd;
-      if (proj.range && proj.distTravelled > proj.range) { proj.life = -1; }
-    }
-    if (Math.hypot(proj.x - arenaX, proj.y - arenaY) > arenaR * lavaRadius + 20) proj.life = -1;
-    return proj.life > 0;
   });
+
+  projectiles = projectiles.filter(proj => proj.life > 0);
 
   // Particles
   particles = particles.filter(pt => {
@@ -1169,6 +1195,54 @@ function makeBoss() {
   b.activeSpells   = ['fireball','meteor','lightning'];
   b.spellLevels    = {};
   return b;
+}
+
+function getSpellForCaster(p, spellName) {
+  const base = SPELLS[spellName];
+  if (!base) return null;
+  if (!p.isBot) return base;
+
+  const spell = { ...base };
+  const lvl = (p.spellLevels && p.spellLevels[spellName]) || 1;
+
+  if (spellName === 'fireball') {
+    for (let i = 2; i <= lvl && i < FIREBALL_LEVELS.length; i++) {
+      const tier = FIREBALL_LEVELS[i];
+      if (tier && tier.fn) tier.fn(spell);
+    }
+  }
+  if (spellName === 'lightning') {
+    for (let i = 2; i <= lvl && i < LIGHTNING_LEVELS.length; i++) {
+      const tier = LIGHTNING_LEVELS[i];
+      if (tier && tier.fn) tier.fn(spell);
+    }
+  }
+
+  if (p.upgrades) {
+    if (p.upgrades.upg_fireball && spellName === 'fireball') {
+      spell.damage += 12;
+      spell.cd = Math.round(spell.cd * 0.8);
+    }
+    if (p.upgrades.upg_lightning && spellName === 'lightning') {
+      spell.damage += 20;
+      spell.cd = Math.round(spell.cd * 0.8);
+    }
+    if (p.upgrades.upg_homing && spellName === 'homing') {
+      spell.damage += 15;
+      spell.cd = Math.round(spell.cd * 0.8);
+    }
+    if (p.upgrades.upg_thrust && spellName === 'thrust') {
+      spell.dashSpeed *= 1.5;
+    }
+    if (p.upgrades.upg_shield && spellName === 'shield') {
+      spell.duration += 1500;
+    }
+    if (p.upgrades.upg_speed && ['fireball','homing','meteor','icebolt'].includes(spellName) && spell.speed) {
+      spell.speed *= 1.3;
+    }
+  }
+
+  return spell;
 }
 
 function spawnBoss() {
@@ -1237,6 +1311,8 @@ function finishBossRound(playerWon) {
     }
     showGoldPop(arenaX, arenaY - arenaR * 0.72, 'BOSS STAGE FAILED');
   }
+
+  awardBotsRoundGold(20);
 
   round++;
   setTimeout(() => {
@@ -1371,6 +1447,82 @@ function updateBoss(boss, dt, now) {
   }
 }
 
+function awardBotsRoundGold(amount) {
+  players.forEach(p => {
+    if (p.isBot && p.lives > 0) p.gold = (p.gold || 0) + amount;
+  });
+}
+
+function botBuySpell(bot, item) {
+  if (!bot.activeSpells.includes(item.id)) bot.activeSpells.push(item.id);
+  bot.gold -= item.cost;
+}
+
+function botBuyUpgrade(bot, item) {
+  if (!bot.upgrades) bot.upgrades = {};
+  bot.upgrades[item.id] = true;
+  bot.gold -= item.cost;
+}
+
+function botBuySpellLevel(bot, spellName, levelData) {
+  if (!bot.spellLevels) bot.spellLevels = {};
+  bot.spellLevels[spellName] = ((bot.spellLevels[spellName] || 1) + 1);
+  bot.gold -= levelData.cost;
+}
+
+function runBotShop() {
+  const spellOffers = SHOP_ITEMS.filter(i => i.type === 'spell');
+  const classicUpgrades = SHOP_ITEMS.filter(i => i.type === 'upgrade');
+
+  players.filter(p => p.isBot && p.lives > 0).forEach(bot => {
+    let safety = 0;
+    while ((bot.gold || 0) >= 60 && safety < 8) {
+      safety++;
+      const options = [];
+
+      spellOffers.forEach(item => {
+        if (!bot.activeSpells.includes(item.id) && bot.gold >= item.cost) {
+          options.push({ type: 'spell', item, score: 30 + (bot.activeSpells.length < 4 ? 20 : 0) + Math.random() * 12 });
+        }
+      });
+
+      classicUpgrades.forEach(item => {
+        if (item.spell && !bot.activeSpells.includes(item.spell)) return;
+        if (bot.upgrades && bot.upgrades[item.id]) return;
+        if (bot.gold >= item.cost) {
+          options.push({ type: 'upgrade', item, score: 26 + Math.random() * 16 });
+        }
+      });
+
+      if (bot.activeSpells.includes('fireball')) {
+        const curLvl = (bot.spellLevels && bot.spellLevels.fireball) || 1;
+        if (curLvl < FIREBALL_LEVELS.length - 1) {
+          const next = FIREBALL_LEVELS[curLvl + 1];
+          if (bot.gold >= next.cost) {
+            options.push({ type: 'spell_level', spell: 'fireball', levelData: next, score: 34 + Math.random() * 10 });
+          }
+        }
+      }
+      if (bot.activeSpells.includes('lightning')) {
+        const curLvl = (bot.spellLevels && bot.spellLevels.lightning) || 1;
+        if (curLvl < LIGHTNING_LEVELS.length - 1) {
+          const next = LIGHTNING_LEVELS[curLvl + 1];
+          if (bot.gold >= next.cost) {
+            options.push({ type: 'spell_level', spell: 'lightning', levelData: next, score: 32 + Math.random() * 10 });
+          }
+        }
+      }
+
+      if (!options.length) break;
+      options.sort((a, b) => b.score - a.score);
+      const choice = options[0];
+      if (choice.type === 'spell') botBuySpell(bot, choice.item);
+      else if (choice.type === 'upgrade') botBuyUpgrade(bot, choice.item);
+      else if (choice.type === 'spell_level') botBuySpellLevel(bot, choice.spell, choice.levelData);
+    }
+  });
+}
+
 function fireBossLaser(boss) {
   const range   = arenaR * 1.2;
   const halfW   = 55;
@@ -1418,8 +1570,14 @@ function checkBossDead(boss) {
 }
 
 function awardBossKillGold() {
+  const killer = players.find(p => p.id === (bossPlayer ? bossPlayer.lastHitBy : -1));
+  if (killer && killer.isBot) {
+    killer.gold = (killer.gold || 0) + 50;
+    showGoldPop(killer.x, killer.y - 40, '+50g BOSS KILL!');
+    return;
+  }
   playerGold += 50;
-  showGoldPop(players[0].x, players[0].y - 40, '+50g BOSS KILL! 👑');
+  showGoldPop(players[0].x, players[0].y - 40, '+50g BOSS KILL!');
   SFX.goldPickup && SFX.goldPickup();
 }
 
@@ -1502,23 +1660,27 @@ function drawLaserTelegraphs() {
 }
 
 function awardKillGold(deadPlayer) {
-  if (deadPlayer.id === 0) return; // player dying gives nothing
+  if (deadPlayer.id === 0) return;
   const now = performance.now();
-  const killerSelf = deadPlayer.lastHitBy; // last hitter
+  const killerSelf = deadPlayer.lastHitBy;
 
-  // Player 0 is the killer
   if (killerSelf === 0 && !players[0].dead) {
     playerGold += 15;
-    showGoldPop(players[0].x, players[0].y - 30, '+15g KILL! 🗡️');
+    showGoldPop(players[0].x, players[0].y - 30, '+15g KILL!');
     SFX.goldPickup();
   } else {
-    // Check if player 0 assisted (hit within last 2s, but not the killer)
     const assistHit = (deadPlayer.hitLog||[]).find(h => h.attackerId === 0 && now - h.time < 2000);
     if (assistHit && !players[0].dead) {
       playerGold += 7;
-      showGoldPop(players[0].x, players[0].y - 30, '+7g ASSIST 🤝');
+      showGoldPop(players[0].x, players[0].y - 30, '+7g ASSIST');
       SFX.goldPickup();
     }
+  }
+
+  const killerBot = players.find(p => p.id === killerSelf && p.isBot && !p.dead);
+  if (killerBot) {
+    killerBot.gold = (killerBot.gold || 0) + 15;
+    showGoldPop(killerBot.x, killerBot.y - 24, '+15g');
   }
 }
 
@@ -1567,6 +1729,7 @@ function checkRoundEnd() {
 
   playerGold += 20;
   if (!player.dead) showGoldPop(player.x, player.y - 30, '+20g STAGE CLEAR!');
+  awardBotsRoundGold(20);
   round++;
   setTimeout(() => { gameRunning = false; showShop(); }, 1000);
 }
@@ -2898,6 +3061,7 @@ function buildShopUpgradeCards() {
 
 function showShop() {
   shopOpen = true;
+  runBotShop();
   const panel = document.getElementById('shopPanel');
   panel.style.display = 'flex';
 
@@ -3080,6 +3244,8 @@ function startGame(e) {
     p.lives = MAX_LIVES;
     p.activeSpells = ['fireball','thrust'];  // others unlocked in shop
     p.upgrades = {};
+    p.spellLevels = {};
+    p.gold = 0;
     p.cooldowns = {};
   });
   spawnPlayers(); // sets countdownVal=3, gameRunning=false
