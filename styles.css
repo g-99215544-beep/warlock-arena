@@ -1,0 +1,541 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0008;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100dvh;
+    overflow: hidden;
+    font-family: 'Cinzel', serif;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #gameCanvas {
+    display: block;
+    touch-action: none;
+  }
+
+  #hud {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 14px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, transparent 100%);
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .player-hud {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 110px;
+  }
+  .player-hud.right { align-items: flex-end; }
+
+  .hud-name {
+    font-family: 'Cinzel Decorative', cursive;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .p1-name { color: #ff6b35; }
+  .p2-name { color: #4fc3f7; }
+
+  .hud-lives { display: flex; gap: 4px; }
+  .hud-lives.right { justify-content: flex-end; }
+
+  .life-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.3);
+  }
+  .life-dot.p1 { background: #ff6b35; box-shadow: 0 0 6px #ff6b35; }
+  .life-dot.p2 { background: #4fc3f7; box-shadow: 0 0 6px #4fc3f7; }
+  .life-dot.empty { background: rgba(255,255,255,0.1); box-shadow: none; }
+
+  .dmg-bar-wrap {
+    width: 110px; height: 5px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .dmg-bar-wrap.right { align-self: flex-end; }
+  .dmg-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.2s;
+  }
+  .dmg-bar.p1 { background: linear-gradient(90deg, #ff9800, #ff4500); }
+  .dmg-bar.p2 { background: linear-gradient(90deg, #0088ff, #00e5ff); }
+
+  #hud-center {
+    text-align: center;
+    color: rgba(255,255,255,0.6);
+    font-size: 9px;
+    letter-spacing: 2px;
+  }
+  #round-text {
+    font-family: 'Cinzel Decorative', cursive;
+    font-size: 11px;
+    color: #d4af37;
+    text-shadow: 0 0 10px #d4af37;
+  }
+
+  /* Touch controls */
+  #controls {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 160px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0 16px 16px;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  #joystick-zone {
+    width: 140px; height: 140px;
+    position: relative;
+    pointer-events: all;
+  }
+
+  #joystick-base {
+    width: 110px; height: 110px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,107,53,0.12) 0%, rgba(255,107,53,0.04) 70%, transparent 100%);
+    border: 2px solid rgba(255,107,53,0.35);
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 20px rgba(255,107,53,0.2), inset 0 0 20px rgba(255,107,53,0.05);
+  }
+
+  #joystick-stick {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #ff8c50, #cc3300);
+    border: 2px solid rgba(255,150,80,0.8);
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 16px rgba(255,107,53,0.7), 0 0 40px rgba(255,107,53,0.3);
+    transition: none;
+  }
+
+  #spell-pad {
+    display: grid;
+    grid-template-columns: repeat(3, 52px);
+    grid-template-rows: repeat(2, 52px);
+    gap: 8px;
+    pointer-events: all;
+  }
+
+  .spell-btn {
+    width: 52px; height: 52px;
+    border-radius: 14px;
+    border: 1.5px solid rgba(255,255,255,0.2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    pointer-events: all;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.08s, border-color 0.1s;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(4px);
+  }
+
+  .spell-btn:active, .spell-btn.active {
+    transform: scale(0.9);
+    border-color: rgba(255,255,255,0.6);
+  }
+
+
+  /* ── SVG SPELL BUTTONS ── */
+  #spell-pad {
+    display: grid;
+    grid-template-columns: repeat(3, 68px);
+    grid-template-rows: repeat(2, 68px);
+    gap: 10px;
+    pointer-events: all;
+  }
+  .spell-btn {
+    width: 68px; height: 68px;
+    border-radius: 50%;
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+    position: relative;
+    pointer-events: all;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.08s;
+  }
+  .spell-btn:active, .spell-btn.active { transform: scale(0.88); }
+  .spell-btn svg { width: 100%; height: 100%; display: block; }
+  /* CD overlay dims the button */
+  .spell-btn.on-cd .spell-icon-bg { filter: saturate(0) brightness(0.45); }
+  .spell-btn .key-label {
+    position: absolute;
+    top: 3px; right: 6px;
+    font-size: 8px; font-weight: 700;
+    color: rgba(255,255,255,0.6);
+    font-family: 'Cinzel', serif;
+    line-height: 1;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .spell-btn .cd-text {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    font-size: 12px; font-weight: 700;
+    color: rgba(255,255,255,0.95);
+    font-family: 'Cinzel', serif;
+    text-shadow: 0 0 8px #000, 0 0 4px #000;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .spell-btn .cooldown-overlay { display: none; } /* hide old veil */
+  /* Ready glow animation */
+  @keyframes spell-ready-pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+    50%      { box-shadow: 0 0 10px 3px rgba(255,255,255,0.18); }
+  }
+  .spell-btn.ready { animation: spell-ready-pulse 2s ease-in-out infinite; }
+
+  .spell-btn .spell-icon { font-size: 20px; line-height: 1; }
+  .spell-btn .spell-name { font-size: 7px; color: rgba(255,255,255,0.6); letter-spacing: 0.5px; margin-top: 2px; font-family: 'Cinzel', serif; }
+  .spell-btn .key-label {
+    position: absolute;
+    top: 3px; right: 5px;
+    font-size: 9px; font-weight: 700;
+    color: rgba(255,255,255,0.5);
+    font-family: 'Cinzel', serif;
+    line-height: 1;
+  }
+  .pc-hint {
+    position: fixed;
+    bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: none;
+    gap: 18px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .pc-hint.visible { display: flex; }
+  .hint-group {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .hint-keys {
+    display: flex; gap: 4px; align-items: center;
+  }
+  .key-cap {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-size: 10px; font-weight: 700;
+    color: rgba(255,255,255,0.65);
+    font-family: 'Cinzel', serif;
+    min-width: 22px; text-align: center;
+    box-shadow: 0 2px 0 rgba(0,0,0,0.4);
+  }
+  .hint-label {
+    font-size: 8px; color: rgba(255,255,255,0.35); letter-spacing: 1px;
+    font-family: 'Cinzel', serif;
+  }
+  .mouse-hint { color: rgba(255,255,255,0.35); font-size: 9px; font-family: 'Cinzel', serif; }
+  #mouse-cursor {
+    position: fixed; pointer-events: none; z-index: 20;
+    width: 22px; height: 22px;
+    transform: translate(-50%, -50%);
+    display: none;
+  }
+  #mouse-cursor.visible { display: block; }
+
+  .spell-btn .cooldown-overlay {
+    position: absolute;
+    inset: 0;
+    border-radius: 13px;
+    background: rgba(0,0,0,0.72);
+    transform-origin: bottom;
+    transform: scaleY(0);
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .spell-btn .cooldown-fill {
+    /* hidden — replaced by veil + text */
+    display: none;
+  }
+  .spell-btn .cd-text {
+    color: rgba(255,255,255,0.9);
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Cinzel', serif;
+    text-shadow: 0 0 8px #000;
+    pointer-events: none;
+  }
+  .spell-btn .cd-ring {
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+
+
+  /* Overlay screens */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(5,0,15,0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    text-align: center;
+    padding: 20px;
+  }
+
+  #overlay h1 {
+    font-family: 'Cinzel Decorative', cursive;
+    font-size: clamp(24px, 6vw, 48px);
+    background: linear-gradient(135deg, #ff6b35, #ffd700, #ff6b35);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    margin-bottom: 8px;
+    filter: drop-shadow(0 0 20px rgba(255,150,50,0.5));
+  }
+
+  #overlay .subtitle {
+    color: rgba(255,255,255,0.45);
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 30px;
+  }
+
+  #overlay .big-btn {
+    padding: 14px 40px;
+    border-radius: 50px;
+    border: 1.5px solid rgba(255,150,50,0.6);
+    background: linear-gradient(135deg, rgba(255,107,53,0.25), rgba(200,50,0,0.15));
+    color: #ffd700;
+    font-family: 'Cinzel Decorative', cursive;
+    font-size: 14px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    box-shadow: 0 0 30px rgba(255,107,53,0.3);
+    margin-top: 10px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #overlay .result-text {
+    font-family: 'Cinzel Decorative', cursive;
+    font-size: clamp(18px, 5vw, 36px);
+    margin-bottom: 10px;
+  }
+  .p1-win { color: #ff6b35; text-shadow: 0 0 20px #ff6b35; }
+  .p2-win { color: #4fc3f7; text-shadow: 0 0 20px #4fc3f7; }
+
+  .lore-text {
+    color: rgba(255,200,100,0.6);
+    font-size: 10px;
+    max-width: 280px;
+    line-height: 1.8;
+    margin-bottom: 20px;
+    letter-spacing: 0.5px;
+  }
+
+
+  /* ── SHOP ── */
+  #shopPanel {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(3,0,12,0.95);
+    z-index: 200;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 16px 12px 80px;
+    overflow-y: auto;
+    gap: 14px;
+  }
+  #shopPanel h2 {
+    font-family: 'Cinzel Decorative', cursive;
+    font-size: clamp(16px,4vw,28px);
+    background: linear-gradient(135deg,#ffd700,#ff9800);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 12px rgba(255,200,50,0.5));
+    margin-bottom: 4px;
+  }
+  .shop-gold {
+    font-size: 15px; color: #ffd700;
+    font-family: 'Cinzel', serif;
+    letter-spacing: 1px;
+    text-shadow: 0 0 10px #ffd700;
+  }
+  .shop-section-title {
+    font-size: 9px; color: rgba(255,200,80,0.6);
+    letter-spacing: 3px; text-transform: uppercase;
+    align-self: flex-start; margin-top: 6px; margin-left: 4px;
+  }
+  .shop-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px; width: 100%; max-width: 680px;
+  }
+  .shop-card {
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    padding: 12px 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    position: relative; overflow: hidden;
+  }
+  .shop-card:hover, .shop-card:active { transform: scale(0.96); }
+  .shop-card.affordable { border-color: rgba(255,200,50,0.5); }
+  .shop-card.affordable:hover { background: rgba(255,200,50,0.08); border-color: rgba(255,200,50,0.9); }
+  .shop-card.owned { border-color: rgba(80,255,120,0.5); background: rgba(80,255,120,0.06); }
+  .shop-card.cant-afford { opacity: 0.45; cursor: not-allowed; }
+  .shop-icon { font-size: 28px; line-height: 1; }
+  .shop-name { font-family: 'Cinzel Decorative', cursive; font-size: 9px; color: rgba(255,255,255,0.9); text-align: center; }
+  .shop-desc { font-size: 8px; color: rgba(255,255,255,0.4); text-align: center; line-height: 1.5; }
+  .shop-cost {
+    font-family: 'Cinzel', serif; font-size: 11px; font-weight: 700;
+    color: #ffd700; text-shadow: 0 0 8px #ffd700;
+  }
+  .shop-cost.free { color: #81c784; }
+  .shop-owned-badge {
+    position: absolute; top: 6px; right: 8px;
+    font-size: 10px; color: #81c784;
+  }
+  .shop-close-btn {
+    padding: 12px 36px;
+    border-radius: 50px;
+    border: 1.5px solid rgba(255,150,50,0.6);
+    background: linear-gradient(135deg, rgba(255,107,53,0.25), rgba(200,50,0,0.15));
+    color: #ffd700; font-family: 'Cinzel Decorative', cursive;
+    font-size: 13px; letter-spacing: 2px; cursor: pointer;
+    box-shadow: 0 0 25px rgba(255,107,53,0.3);
+    position: fixed; bottom: 18px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .shop-player-spells {
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    max-width: 680px; width: 100%;
+  }
+  .active-spell-chip {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 20px; padding: 4px 10px;
+    font-size: 9px; color: rgba(255,255,255,0.7);
+    display: flex; align-items: center; gap: 4px;
+    font-family: 'Cinzel', serif;
+  }
+
+  #dmg-indicator {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 50;
+  }
+
+
+  /* ── PC Spell Bar ── */
+  #pc-spell-bar {
+    display: none;
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    flex-direction: row;
+    gap: 8px;
+    z-index: 200;
+    pointer-events: none;
+    align-items: flex-end;
+  }
+  #pc-spell-bar.visible { display: flex; }
+  .pc-spell-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    position: relative;
+  }
+  .pc-spell-slot .pc-icon-wrap {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    position: relative;
+    overflow: visible;
+  }
+  .pc-spell-slot .pc-icon-wrap svg { width: 48px; height: 48px; display: block; border-radius: 50%; }
+  .pc-spell-slot .pc-key {
+    font-size: 9px; font-weight: 700;
+    color: rgba(255,255,255,0.6);
+    font-family: 'Cinzel', serif;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 4px;
+    padding: 1px 5px;
+    line-height: 1.4;
+  }
+  .pc-spell-slot .pc-cd-text {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    font-size: 10px; font-weight: 700;
+    color: white;
+    font-family: 'Cinzel', serif;
+    text-shadow: 0 0 6px #000;
+    pointer-events: none;
+  }
+  .pc-spell-slot .pc-level-badge {
+    position: absolute;
+    bottom: -2px; right: -2px;
+    background: rgba(255,180,30,0.9);
+    color: #000;
+    font-size: 7px; font-weight: 900;
+    font-family: 'Cinzel', serif;
+    border-radius: 8px;
+    padding: 1px 4px;
+    line-height: 1.3;
+    border: 1px solid rgba(255,255,255,0.4);
+  }
+
+  /* Swap modal slots */
+  .swap-slot-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; padding: 10px 6px;
+    background: rgba(255,255,255,0.06);
+    border: 1.5px solid rgba(255,255,255,0.2);
+    border-radius: 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .swap-slot-btn:hover, .swap-slot-btn:active { background: rgba(255,120,30,0.25); border-color: #ff9944; }
+  .swap-slot-icon { font-size: 22px; }
+  .swap-slot-name { font-size: 9px; color: rgba(255,255,255,0.7); font-family: 'Cinzel',serif; letter-spacing: 0.5px; text-align:center; }
