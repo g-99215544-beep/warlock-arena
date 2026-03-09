@@ -468,11 +468,52 @@ window.addEventListener('contextmenu', e => e.preventDefault());
 const stick = document.getElementById('joystick-stick');
 const jzone = document.getElementById('joystick-zone');
 let joystick = { active: false, dx: 0, dy: 0, id: null };
+let activeSkillAim = null;
 let jRect;
 
 function getJRect() { jRect = jzone.getBoundingClientRect(); }
 getJRect();
 window.addEventListener('resize', getJRect);
+
+function clearSkillAim() {
+  if (activeSkillAim && activeSkillAim.button) activeSkillAim.button.classList.remove('active');
+  activeSkillAim = null;
+}
+
+function updateSkillAimFromTouch(t) {
+  if (!activeSkillAim) return;
+  let dx = t.clientX - activeSkillAim.originX;
+  let dy = t.clientY - activeSkillAim.originY;
+  const dist = Math.hypot(dx, dy);
+  const maxR = activeSkillAim.maxDistance;
+  if (dist > maxR) {
+    dx = dx / dist * maxR;
+    dy = dy / dist * maxR;
+  }
+  const norm = Math.hypot(dx, dy) || 1;
+  activeSkillAim.dx = dx / norm;
+  activeSkillAim.dy = dy / norm;
+  activeSkillAim.distance = Math.min(dist, maxR);
+}
+
+function beginSkillAim(btn, touch) {
+  const spell = btn.dataset.spell;
+  if (!players[0].activeSpells || !players[0].activeSpells.includes(spell)) return;
+  const rect = btn.getBoundingClientRect();
+  activeSkillAim = {
+    id: touch.identifier,
+    spell,
+    button: btn,
+    originX: rect.left + rect.width / 2,
+    originY: rect.top + rect.height / 2,
+    dx: Math.cos(players[0].angle),
+    dy: Math.sin(players[0].angle),
+    distance: 84,
+    maxDistance: 132,
+  };
+  btn.classList.add('active');
+  updateSkillAimFromTouch(touch);
+}
 
 jzone.addEventListener('touchstart', e => {
   e.preventDefault();
@@ -484,17 +525,40 @@ jzone.addEventListener('touchstart', e => {
 
 window.addEventListener('touchmove', e => {
   e.preventDefault();
-  for (let t of e.changedTouches) {
+  for (const t of e.changedTouches) {
     if (t.identifier === joystick.id) updateJoystick(t);
+    if (activeSkillAim && t.identifier === activeSkillAim.id) updateSkillAimFromTouch(t);
   }
 }, { passive: false });
 
 window.addEventListener('touchend', e => {
-  for (let t of e.changedTouches) {
+  for (const t of e.changedTouches) {
     if (t.identifier === joystick.id) {
-      joystick.active = false; joystick.dx = 0; joystick.dy = 0; joystick.id = null;
+      joystick.active = false;
+      joystick.dx = 0;
+      joystick.dy = 0;
+      joystick.id = null;
       stick.style.transform = 'translate(-50%, -50%)';
     }
+    if (activeSkillAim && t.identifier === activeSkillAim.id) {
+      const aim = { dx: activeSkillAim.dx, dy: activeSkillAim.dy, distance: activeSkillAim.distance };
+      const spell = activeSkillAim.spell;
+      clearSkillAim();
+      castSpell(players[0], spell, aim);
+    }
+  }
+});
+
+window.addEventListener('touchcancel', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystick.id) {
+      joystick.active = false;
+      joystick.dx = 0;
+      joystick.dy = 0;
+      joystick.id = null;
+      stick.style.transform = 'translate(-50%, -50%)';
+    }
+    if (activeSkillAim && t.identifier === activeSkillAim.id) clearSkillAim();
   }
 });
 
@@ -510,22 +574,13 @@ function updateJoystick(t) {
   stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
 }
 
-// ─────────────────────────────────────────────
-// SPELL BUTTONS
-// ─────────────────────────────────────────────
 document.querySelectorAll('.spell-btn').forEach(btn => {
   btn.addEventListener('touchstart', e => {
     e.preventDefault();
-    const spell = btn.dataset.spell;
-    castSpell(players[0], spell);
-    btn.classList.add('active');
-    setTimeout(() => btn.classList.remove('active'), 150);
+    beginSkillAim(btn, e.changedTouches[0]);
   }, { passive: false });
 });
 
-// ─────────────────────────────────────────────
-// ARENA
-// ─────────────────────────────────────────────
 function computeArena() {
   arenaX = canvas.width / 2;
   arenaY = canvas.height / 2 - 30;
@@ -578,33 +633,29 @@ function spawnPlayers() {
 // ─────────────────────────────────────────────
 // CAST SPELL
 // ─────────────────────────────────────────────
-function castSpell(p, spellName) {
+function castSpell(p, spellName, aimOverride = null) {
   if (!gameRunning || p.dead || countdownVal > 0) return;
   const spell = getSpellForCaster(p, spellName);
   if (!spell) return;
-  // Check player has this spell
   if (!p.isBot && p.activeSpells && !p.activeSpells.includes(spellName)) return;
   const now = performance.now();
   if ((p.cooldowns[spellName]||0) > now) return;
   p.cooldowns[spellName] = now + spell.cd;
   p.castFlash = 220;
-  if (!p.isBot || Math.random() < 0.5) { // don't spam sfx for all bots
+  if (!p.isBot || Math.random() < 0.5) {
     if (SFX[spellName]) SFX[spellName]();
   }
 
-  // Pick nearest live enemy as target
   const enemies = players.filter(e => e.id !== p.id && !e.dead);
   if (enemies.length === 0) return;
-  const target = enemies.reduce((best, e) => {
-    return Math.hypot(e.x-p.x,e.y-p.y) < Math.hypot(best.x-p.x,best.y-p.y) ? e : best;
-  });
-  const dx = target.x - p.x, dy = target.y - p.y;
-  const dist = Math.hypot(dx, dy) || 1;
-  const nx = dx/dist, ny = dy/dist;
+  const target = enemies.reduce((best, e) => Math.hypot(e.x-p.x,e.y-p.y) < Math.hypot(best.x-p.x,best.y-p.y) ? e : best);
+  const manualAim = aimOverride || getManualAim(p, target);
+  const nx = manualAim.dx;
+  const ny = manualAim.dy;
 
   if (spellName === 'fireball' || spellName === 'homing') {
     const shots = (spellName === 'fireball' && spell.splitShot) ? spell.splitShot : 1;
-    const spread = shots > 1 ? 0.25 : 0; // radians between split shots
+    const spread = shots > 1 ? 0.25 : 0;
     for (let si = 0; si < shots; si++) {
       const angleOffset = (si - (shots-1)/2) * spread;
       const cos0 = Math.cos(angleOffset), sin0 = Math.sin(angleOffset);
@@ -626,19 +677,9 @@ function castSpell(p, spellName) {
   }
 
   if (spellName === 'lightning') {
-    // Aim-based projectile (uses player angle for bots, mouse for PC)
-    let lnx = nx, lny = ny;
-    if (!p.isBot && inputMode === 'pc') {
-      const _lwmx = mouseX + camX - canvas.width/2;
-      const _lwmy = mouseY + camY - canvas.height/2;
-      const _ld = Math.hypot(_lwmx - p.x, _lwmy - p.y) || 1;
-      lnx = (_lwmx - p.x) / _ld; lny = (_lwmy - p.y) / _ld;
-    } else if (!p.isBot && inputMode === 'touch') {
-      lnx = Math.cos(p.angle); lny = Math.sin(p.angle);
-    }
     projectiles.push({
-      x: p.x + lnx*(p.radius+12), y: p.y + lny*(p.radius+12),
-      vx: lnx * spell.speed, vy: lny * spell.speed,
+      x: p.x + nx*(p.radius+12), y: p.y + ny*(p.radius+12),
+      vx: nx * spell.speed, vy: ny * spell.speed,
       owner: p.id, spell: 'lightning',
       damage: spell.damage, radius: spell.radius || 7,
       color: spell.color, glow: spell.glow,
@@ -661,26 +702,16 @@ function castSpell(p, spellName) {
   }
 
   if (spellName === 'thrust') {
-    let dashNx = nx, dashNy = ny;
-    if (!p.isBot && inputMode === 'pc') {
-      const _wmx = mouseX + camX - canvas.width/2;
-      const _wmy = mouseY + camY - canvas.height/2;
-      const mdx = _wmx - p.x, mdy = _wmy - p.y;
-      const md = Math.hypot(mdx, mdy) || 1;
-      dashNx = mdx / md; dashNy = mdy / md;
-    }
-    p.vx += dashNx * spell.dashSpeed;
-    p.vy += dashNy * spell.dashSpeed;
+    p.vx += nx * spell.dashSpeed;
+    p.vy += ny * spell.dashSpeed;
     p.thrusting = true;
     p.thrustTimer = performance.now() + 300;
-    p.dashFlash = 400; // blue flash
-    p.dashTrail = []; // reset trail
+    p.dashFlash = 400;
+    p.dashTrail = [];
     spawnParticlesBurst(p.x, p.y, spell.color, 14);
   }
 
   if (spellName === 'meteor') {
-    // Big slow projectile with AoE on impact
-    const upg = p.upgrades && p.upgrades.meteor;
     projectiles.push({
       x: p.x + nx*(p.radius+18), y: p.y + ny*(p.radius+18),
       vx: nx*spell.speed, vy: ny*spell.speed,
@@ -707,20 +738,24 @@ function castSpell(p, spellName) {
   }
 
   if (spellName === 'gravity') {
-    const cx = (p.x + target.x) / 2, cy = (p.y + target.y) / 2;
+    const gravityRange = 220;
+    const gravityDist = Math.min(manualAim.distance || gravityRange, gravityRange);
+    const cx = p.x + nx * gravityDist;
+    const cy = p.y + ny * gravityDist;
     effects.push({ type: 'gravity', x: cx, y: cy, life: spell.duration / 16, maxLife: spell.duration / 16, radius: spell.radius, color: spell.color });
-    // pull target toward center
-    const tdx = cx - target.x, tdy = cy - target.y;
-    const td = Math.hypot(tdx, tdy) || 1;
-    target.vx += (tdx/td) * 4;
-    target.vy += (tdy/td) * 4;
+    players.forEach(ep => {
+      if (ep.id === p.id || ep.dead) return;
+      const tdx = cx - ep.x, tdy = cy - ep.y;
+      const td = Math.hypot(tdx, tdy) || 1;
+      if (td <= spell.radius * 1.8) {
+        ep.vx += (tdx/td) * 4;
+        ep.vy += (tdy/td) * 4;
+      }
+    });
     spawnParticlesBurst(cx, cy, spell.color, 16);
   }
 }
 
-// ─────────────────────────────────────────────
-// DAMAGE + KNOCKBACK
-// ─────────────────────────────────────────────
 function applyDamage(victim, attacker, dmg, nx, ny, kbMult) {
   if (victim.isBoss) {
     victim.bossHp = Math.max(0, (victim.bossHp||0) - dmg);
@@ -1243,6 +1278,23 @@ function getSpellForCaster(p, spellName) {
   }
 
   return spell;
+}
+
+function getManualAim(p, fallbackTarget) {
+  let ax = 0;
+  let ay = 0;
+  if (!p.isBot && inputMode === 'pc') {
+    ax = mouseX + camX - canvas.width / 2 - p.x;
+    ay = mouseY + camY - canvas.height / 2 - p.y;
+  } else if (!p.isBot) {
+    ax = Math.cos(p.angle);
+    ay = Math.sin(p.angle);
+  } else if (fallbackTarget) {
+    ax = fallbackTarget.x - p.x;
+    ay = fallbackTarget.y - p.y;
+  }
+  const dist = Math.hypot(ax, ay) || 1;
+  return { dx: ax / dist, dy: ay / dist, distance: dist };
 }
 
 function spawnBoss() {
@@ -2671,6 +2723,67 @@ function drawWarlock(p) {
   ctx.restore();
 
   ctx.restore(); // main translate
+}
+
+function getSkillAimRange(spellName) {
+  if (spellName === 'lightning') return SPELLS.lightning.range || 280;
+  if (spellName === 'gravity') return 220;
+  if (spellName === 'thrust') return 150;
+  if (spellName === 'shield') return 70;
+  if (spellName === 'meteor') return 240;
+  return 230;
+}
+
+function drawTouchSkillAim() {
+  if (!activeSkillAim || inputMode !== 'touch' || players[0].dead) return;
+  const player = players[0];
+  const spell = SPELLS[activeSkillAim.spell];
+  if (!spell) return;
+  const range = getSkillAimRange(activeSkillAim.spell);
+  const tx = player.x + activeSkillAim.dx * range;
+  const ty = player.y + activeSkillAim.dy * range;
+  const ang = Math.atan2(activeSkillAim.dy, activeSkillAim.dx);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,220,140,0.9)';
+  ctx.fillStyle = 'rgba(255,180,80,0.12)';
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([12, 8]);
+  ctx.beginPath();
+  ctx.moveTo(player.x, player.y);
+  ctx.lineTo(tx, ty);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (activeSkillAim.spell === 'gravity') {
+    ctx.beginPath();
+    ctx.arc(tx, ty, spell.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  } else if (activeSkillAim.spell === 'meteor') {
+    ctx.beginPath();
+    ctx.arc(tx, ty, spell.aoeRadius || 70, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  } else if (activeSkillAim.spell === 'shield') {
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, 34, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.rotate(ang);
+    ctx.beginPath();
+    ctx.moveTo(18, 0);
+    ctx.lineTo(-10, -9);
+    ctx.lineTo(-10, 9);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,220,140,0.75)';
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
 }
 
 function drawProjectiles() {
