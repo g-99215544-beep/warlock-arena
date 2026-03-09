@@ -2734,6 +2734,31 @@ function getSkillAimRange(spellName) {
   return 230;
 }
 
+function drawAimReticle(x, y, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 14;
+  ctx.beginPath();
+  ctx.arc(x, y, 15, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, 6, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - 22, y);
+  ctx.lineTo(x - 9, y);
+  ctx.moveTo(x + 9, y);
+  ctx.lineTo(x + 22, y);
+  ctx.moveTo(x, y - 22);
+  ctx.lineTo(x, y - 9);
+  ctx.moveTo(x, y + 9);
+  ctx.lineTo(x, y + 22);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawTouchSkillAim() {
   if (!activeSkillAim || inputMode !== 'touch' || players[0].dead) return;
   const player = players[0];
@@ -2743,16 +2768,44 @@ function drawTouchSkillAim() {
   const tx = player.x + activeSkillAim.dx * range;
   const ty = player.y + activeSkillAim.dy * range;
   const ang = Math.atan2(activeSkillAim.dy, activeSkillAim.dx);
+  const aimColor = 'rgba(255,220,140,0.95)';
+  const fillColor = 'rgba(255,180,80,0.14)';
+  const isLinearSpell = !['gravity', 'meteor', 'shield'].includes(activeSkillAim.spell);
 
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,220,140,0.9)';
-  ctx.fillStyle = 'rgba(255,180,80,0.12)';
-  ctx.lineWidth = 2.5;
-  ctx.setLineDash([12, 8]);
-  ctx.beginPath();
-  ctx.moveTo(player.x, player.y);
-  ctx.lineTo(tx, ty);
-  ctx.stroke();
+  ctx.strokeStyle = aimColor;
+  ctx.fillStyle = fillColor;
+  ctx.shadowColor = aimColor;
+  ctx.shadowBlur = 16;
+  if (isLinearSpell) {
+    const len = Math.hypot(tx - player.x, ty - player.y);
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(ang);
+    const beamGrad = ctx.createLinearGradient(0, 0, len, 0);
+    beamGrad.addColorStop(0, 'rgba(255,230,180,0.92)');
+    beamGrad.addColorStop(0.55, 'rgba(255,180,80,0.45)');
+    beamGrad.addColorStop(1, 'rgba(255,180,80,0.08)');
+    ctx.fillStyle = beamGrad;
+    ctx.beginPath();
+    ctx.rect(0, -7, len, 14);
+    ctx.fill();
+    ctx.strokeStyle = aimColor;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([14, 8]);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(len, 0);
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([12, 8]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+  }
   ctx.setLineDash([]);
 
   if (activeSkillAim.spell === 'gravity') {
@@ -2760,16 +2813,19 @@ function drawTouchSkillAim() {
     ctx.arc(tx, ty, spell.radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    drawAimReticle(tx, ty, aimColor);
   } else if (activeSkillAim.spell === 'meteor') {
     ctx.beginPath();
     ctx.arc(tx, ty, spell.aoeRadius || 70, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    drawAimReticle(tx, ty, aimColor);
   } else if (activeSkillAim.spell === 'shield') {
     ctx.beginPath();
     ctx.arc(player.x, player.y, 34, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    drawAimReticle(player.x + Math.cos(ang) * 42, player.y + Math.sin(ang) * 42, aimColor);
   } else {
     ctx.save();
     ctx.translate(tx, ty);
@@ -2782,6 +2838,7 @@ function drawTouchSkillAim() {
     ctx.fillStyle = 'rgba(255,220,140,0.75)';
     ctx.fill();
     ctx.restore();
+    drawAimReticle(tx, ty, aimColor);
   }
   ctx.restore();
 }
