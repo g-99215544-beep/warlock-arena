@@ -351,6 +351,7 @@ let inputMode = 'touch'; // 'touch' | 'pc'
 const pcHint = document.getElementById('pcHint');
 const mouseCursor = document.getElementById('mouse-cursor');
 const controlsEl = document.getElementById('controls');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
 
 function setInputMode(mode) {
   if (inputMode === mode) return;
@@ -373,6 +374,41 @@ function setInputMode(mode) {
 // Auto-detect PC on first mousemove
 window.addEventListener('mousemove', () => setInputMode('pc'), { once: true });
 window.addEventListener('touchstart', () => setInputMode('touch'), { once: true });
+
+async function requestFullscreenLandscape() {
+  if (!fullscreenBtn) return;
+  const root = document.documentElement;
+  const requestFs = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+  if (!requestFs) {
+    fullscreenBtn.textContent = 'Fullscreen Not Supported';
+    fullscreenBtn.disabled = true;
+    return;
+  }
+
+  try {
+    if (!document.fullscreenElement) {
+      await requestFs.call(root);
+    }
+    if (screen.orientation && screen.orientation.lock) {
+      try {
+        await screen.orientation.lock('landscape');
+      } catch (_) {
+        // Some mobile browsers require fullscreen first or do not allow locking.
+      }
+    }
+    fullscreenBtn.textContent = 'Landscape Enabled';
+  } catch (_) {
+    fullscreenBtn.textContent = 'Tap To Retry Fullscreen';
+  }
+}
+
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', requestFullscreenLandscape);
+  fullscreenBtn.addEventListener('touchend', e => {
+    e.preventDefault();
+    requestFullscreenLandscape();
+  }, { passive: false });
+}
 
 // ─────────────────────────────────────────────
 // KEYBOARD INPUT

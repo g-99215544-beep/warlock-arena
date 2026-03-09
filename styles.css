@@ -347,6 +347,29 @@
     margin-top: 10px;
     -webkit-tap-highlight-color: transparent;
   }
+  #overlay .menu-btn {
+    min-width: min(320px, 82vw);
+    padding: 13px 28px;
+    border-radius: 50px;
+    border: 1.5px solid rgba(255,150,50,0.35);
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,240,200,0.92);
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    letter-spacing: 1.4px;
+    cursor: pointer;
+    margin-top: 10px;
+    box-shadow: 0 0 24px rgba(0,0,0,0.28);
+    -webkit-tap-highlight-color: transparent;
+  }
+  #overlay .menu-btn.secondary {
+    border-color: rgba(255,215,120,0.28);
+    background: linear-gradient(135deg, rgba(255,215,120,0.12), rgba(255,107,53,0.08));
+  }
+  #overlay .menu-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
 
   #overlay .result-text {
     font-family: 'Cinzel Decorative', cursive;
